@@ -1,4 +1,8 @@
+numpy
 rosbags
 bagpy
 opencv-python
 scikit-learn
+cvbridge3
+--extra-index-url https://rospypi.github.io/simple/ 
+roslz4
