@@ -4,6 +4,7 @@
 import rosbag
 from sensor_msgs.msg import Image
 import cv2
+import yaml
 
 from cv_bridge import CvBridge
 import time
@@ -12,37 +13,23 @@ import numpy as np
 from sklearn.cluster import DBSCAN
 import matplotlib.pyplot as plt
 
-image_width =346
-image_height =260
+from functions import makeGraph, drawLinesPolar, filter_lines_intersect, img_from_events, showImage, undistort_image, getIntersect, isClose2D, isClose
 
-# Camera intrinsics
-fx = 298.67179975
-fy =298.59720232
-cx =176.38660484
-cy =119.96968706
+with open('config.yaml', 'r') as f:
+    config = yaml.safe_load(f)
 
-# Camera distortion
-k1 =-0.37074772
-k2 =0.14798075
-k3 =0.0
-p1 =0.00251884
-p2 =-0.00170605
-
-pattern = (10,7)
+pattern = config.get("pattern")
 num_features = pattern[0] * pattern[1]
 
-topics_dict = {'image' : '/dvs/image_raw', 
-                'tf'  : '/tf',
-                'event' : '/dvs/events'}
+topics_dict = config.get("topics")
 
-feature_detect_toggle = {'hough' : 1,
-                        'circlesGrid' : 0}
+feature_detect_toggle = config.get("feature_toggle")
 
 # delay for how long the images are displayed for 
 delay = 100
 
 # event camera characteristics
-event_buffer_time_ns = 5e8
+event_buffer_time_ns = config.get("event_buffer_time_ns")
 previous_time_ns = 0
 current_time_ns = 1
 
@@ -97,7 +84,7 @@ def read_images_from_rosbag(bag_file):
             # blurred_img = cv2.medianBlur(binarised_img,5)
 
             # canny edge detection
-            canny = cv2.Canny(gray_img, 50, 200)
+            canny = cv2.Canny(gray_img, 100, 180)
 
             # get lines from image
             border = cv2.HoughLines(canny, 1,np.pi/180, 100)
@@ -303,194 +290,6 @@ def read_images_from_rosbag(bag_file):
     makeGraph(event_accuracy_histogram, ["EVENT"], "Nano seconds from start", "Percentage of features detected (%)", "Event Camera accuracy")
     makeGraph(rgb_accuracy_histogram, ["RGB"], "Frame number", "Percentage of features detected (%)","RGB accuracy per frame" )
 
-"""
-Function: makes a graph using the matplotlib library's pyplot class.
-
-Parameters:
-time_list   : a list of timestamps
-y_lists     : a list of y-variable lists to plot, e.g. [acc_x, acc_y, acc_z] or [int_temp]    
-series_names: a list of series name strings in the same order as 'y_lists', e.g. ["x-direction", "y-direction", "z-direction"]
-x_label     : a string of the x axis label.
-y_label     : a string of the y axis label
-title       : a string of the title
-"""
-def makeGraph(data_list : list, series_names : list, x_label : str, y_label : str, title : str):
-
-    plt.figure()
-
-    x_list = []
-    y_list = []
-
-    for (x,y) in data_list:
-        x_list.append(x)
-        y_list.append(y)
-
-    # for y_list in y_lists:
-    #     plt.plot(time_list, y_list)
-
-    plt.plot(x_list, y_list)
-    
-    plt.legend(series_names)
-    plt.xlabel(x_label)
-    plt.ylabel(y_label)
-    plt.title(title)
-    # plt.grid(b=True, which='major', color='grey', linestyle='-')
-    # plt.grid(b=True, which='minor', color='lightgrey', linestyle='--')
-    plt.minorticks_on() 
-    plt.show()
-
-def showImage(title, image, duration):
-    if duration==0:
-        return
-    else:
-        cv2.imshow(title, image)
-        cv2.waitKey(duration)
-        return
-
-def undistort_image (image):
-    camera_matrix = np.array([[fx, 0, cx],
-                          [0, fy, cy],
-                          [0,  0,  1]])
-    
-    # Create the distortion coefficients array
-    dist_coeffs = np.array([k1, k2, p1, p2, k3])
-
-    return cv2.undistort(image, camera_matrix, dist_coeffs)
-
-def dbscan_filter(circles):
-
-    points = np.array([[a,b] for (a,b,c) in circles[0,:]])
-
-    eps = 20    # The maximum distance between two samples for one to be considered as in the neighborhood of the other
-    min_samples = 8  # The number of samples (or total weight) in a neighborhood for a point to be considered as a core point
-
-    # Create and fit the DBSCAN model
-    dbscan = DBSCAN(eps=eps, min_samples=min_samples)
-    labels = dbscan.fit_predict(points)
-
-    labels = set(labels)
-
-    # Step 5: Plot the results
-# Get unique labels
-    unique_labels = set(labels)
-
-    print(unique_labels)
-# Create a color map for different clusters
-    colors = plt.cm.Spectral(np.linspace(0, 1, len(unique_labels)))
-
-    # Plot each cluster
-    for k, col in zip(unique_labels, colors):
-        if k == -1:
-            # Black used for noise.
-            col = 'k'
-
-        class_member_mask = (labels == k)
-
-        xy = points[class_member_mask]
-        plt.plot(xy[:, 0], xy[:, 1], 'o', markerfacecolor=col,
-                markeredgecolor='k', markersize=6)
-
-
-    # get indexes to delete from original list
-
-    # delete outliers from original list
-
-    return 
-
-def drawLinesPolar(lines, image):
-
-    point_lines = []
-
-    if lines is not None:
-        for line in lines:
-            rho, theta = line[0][0], line[0][1]
-            a = np.cos(theta)
-            b = np.sin(theta)
-            x0 = a * rho
-            y0 = b * rho
-            x1 = int(x0 + 1000 * (-b))
-            y1 = int(y0 + 1000 * (a))
-            x2 = int(x0 - 1000 * (-b))
-            y2 = int(y0 - 1000 * (a))
-            if len(image.shape) == 2:
-                cv2.line(image, (x1, y1), (x2, y2), 255, 2)
-            elif len(image.shape) == 3:
-                cv2.line(image, (x1, y1), (x2, y2), (0, 0, 255), 2)
-            point_lines.append([(x1,y1),(x2,y2)])
-
-    return point_lines
-
-# filters a list of lines based on if they intersect inside the frame
-def filter_lines_intersect(vert_lines):
-
-    remove_set = set()
-
-    for line1 in vert_lines:
-        for line2 in vert_lines:
-            # not the same line
-            if line1!= line2:
-
-                #not parallel
-                if getIntersect(line1,line2) != None:
-                    x,y = getIntersect(line1,line2)
-
-                    # intersect in the image dimensions
-                    if abs(x) < image_width *1.5 and abs(y) < image_height*1.5:
-
-                        #not already in remove list
-                        if (line1 not in remove_set) and (line2 not in remove_set):
-                            remove_set.add(line2)
-
-    output = list(set(vert_lines).difference(remove_set)) 
-
-    return output
-
-def isClose(v1,v2,thresh):
-    return (abs(v1 - v2) <= thresh)
-
-def isClose2D(coord1,coord2,thresh):
-    x1,y1 = coord1
-    x2,y2 = coord2
-    return ((x1-x2)**2 + (y1-y2)**2 <= thresh**2)
-        
-# gets the interection point of two lines in the form rho, theta
-def getIntersect (line1, line2):
-    
-    a1,b1,c1 = polar_to_cartesian(line1[0],line1[1])
-    a2,b2,c2 = polar_to_cartesian(line2[0],line2[1])
-
-    # Create coefficient matrix and constant vector
-    A = np.array([[a1, b1], [a2, b2]])
-    B = np.array([c1, c2])
-    
-    # Check if lines are parallel
-    if np.linalg.det(A) == 0:
-        return None  # Lines are parallel, no intersection or infinite intersections
-    
-    # Solve the system of linear equations
-    x, y = np.linalg.solve(A, B)
-    return [x, y]
-     
-
-def polar_to_cartesian(rho, theta):
-    """Convert polar coordinates (rho, theta) to Cartesian form coefficients (a, b, c) for the line equation ax + by = c."""
-    a = np.cos(theta)
-    b = np.sin(theta)
-    c = rho
-    return a, b, c
-
-def img_from_events(event_bin):
-    blank_image = np.zeros((image_height,image_width), np.uint8)
-
-    for event in event_bin:
-        x,y = event.x, event.y
-        blank_image[y,x] = 255
-
-    blank_image = undistort_image(blank_image)
-
-    return blank_image
-
-
 if __name__ == "__main__":
     
     # bag_file = 'C:/Users/yush7/Desktop/vri_files_2024/data/calib/hi2.bag'
@@ -498,7 +297,6 @@ if __name__ == "__main__":
     # bag_file = 'C:/Users/yush7/Desktop/satellite project files/data/test1.bag'
     # bag_file = 'C:/Users/yush7/Desktop/satellite project files/data/calib/calibration_data.bag'
     bag_file = '/home/ayush/Data/tst2.bag'
-    
 
     # decompress_lz4_file(lz4_file, bag_file)
   
