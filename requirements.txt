@@ -1,0 +1,4 @@
+rosbags
+bagpy
+opencv-python
+scikit-learn
