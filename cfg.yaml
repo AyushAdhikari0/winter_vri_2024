@@ -1,0 +1,24 @@
+# Camera topic
+camera_topic: '/dvs/image_raw'
+robot_tf_topic: '/tf'
+event_topic: '/dvs/events'
+
+# Image size
+image_width: 346
+image_height: 260
+
+# TF frames if using /tf topic
+tf_parent: 'base'
+tf_child: 'tool0_controller'
+
+#INTRINSICS SHOULD BE AT THE END (9 LINES)
+
+fx: 295.1374821573644
+fy: 294.8394945668388
+cx: 171.8376700693508
+cy: 125.66829667073789
+k1: -0.38717762023965885
+k2: 0.21901330421339732
+k3: -0.07187495241833602
+p1: 6.212935381984E-4
+p2: 4.979870101577617E-4
