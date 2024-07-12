@@ -1,6 +1,5 @@
 numpy
 rosbags
-bagpy
 opencv-python
 opencv-contrib-python
 scikit-learn
