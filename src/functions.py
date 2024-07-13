@@ -73,15 +73,8 @@ def showImage(title, image, duration):
         cv2.waitKey(duration)
         return
 
-def undistort_image (image):
-    camera_matrix = np.array([[fx, 0, cx],
-                          [0, fy, cy],
-                          [0,  0,  1]])
-    
-    # Create the distortion coefficients array
-    dist_coeffs = np.array([k1, k2, p1, p2, k3])
-
-    return cv2.undistort(image, camera_matrix, dist_coeffs)
+def undistort_image (image, camera_matrix, distortion_coefficients):
+    return cv2.undistort(image, camera_matrix, distortion_coefficients)
 
 def dbscan_filter(circles):
 
@@ -205,13 +198,13 @@ def polar_to_cartesian(rho, theta):
     c = rho
     return a, b, c
 
-def img_from_events(event_bin):
+def img_from_events(event_bin, camera_matrix, distortion_coefficients):
     blank_image = np.zeros((image_height,image_width), np.uint8)
 
     for event in event_bin:
         x,y = event.x, event.y
         blank_image[y,x] = 255
 
-    blank_image = undistort_image(blank_image)
+    blank_image = undistort_image(blank_image, camera_matrix, distortion_coefficients)
 
     return blank_image

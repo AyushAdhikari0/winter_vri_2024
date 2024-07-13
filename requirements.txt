@@ -5,5 +5,7 @@ opencv-contrib-python
 scikit-learn
 cvbridge3
 pyyaml
+tk
+matplotlib
 --extra-index-url https://rospypi.github.io/simple/ 
 roslz4

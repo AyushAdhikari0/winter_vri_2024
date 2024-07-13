@@ -1,23 +1,10 @@
-
-## Docker
-
-A docker image based on ROS Noetic can be used to run the python script
-
-To build the image run the following command:
-```bash
-docker build -t vri:latest .
-```
-
-The container will try to display using RQT therefore it requires access to your system display. **This container will only work for X11 display-based systems.** Copy and run the following command to start the container (this is a single command):
-```bash 
-xhost +local:docker && docker run -it --rm --network host --name vri --env DISPLAY=$DISPLAY --env QT_X11_NO_MITSHM=1 --volume /tmp/.X11-unix:/tmp/.X11-unix vri && xhost -local:docker
-```
-
-**NOTE:** Please make sure you type `exit` to shutdown the container such that `xhost` can remove docker privileges to the X server. If container was not shutdown properly or unsure, please run the following command to remove docker privileges to X server:
+## Running
 
 ```bash
-xhost -local:docker
+python main.py /path/to/rosbag
 ```
+
+
 
 
 ## Processing HDR imaging with event and colour cameras
@@ -36,3 +23,36 @@ Basic guideline for processing camera images captured from Rosbags in order to d
 8. Now we need to apply a feature detector to images. Look into [SIFT](https://docs.opencv.org/4.x/da/df5/tutorial_py_sift_intro.html) 
 9. Filter detected features based on size
 10. Plot number of detected features vs number of actual features.
+
+
+
+
+
+## Docker
+
+A docker image based on ROS Noetic can be used to run the python script
+
+To build the image run the following command:
+
+```bash
+docker build -t vri:latest .
+```
+
+The container will try to display using RQT therefore it requires access to your system display. **This container will only work for X11 display-based systems.** Copy and run the following command to start the container (this is a single command):
+
+```bash 
+xhost +local:docker && docker run -it --rm --network host --name vri --env DISPLAY=$DISPLAY --env QT_X11_NO_MITSHM=1 --volume /tmp/.X11-unix:/tmp/.X11-unix vri && xhost -local:docker
+
+
+xhost +local:docker && docker run -it --rm --network host --name vri --env DISPLAY=$DISPLAY --env QT_X11_NO_MITSHM=1 --volume /tmp/.X11-unix:/tmp/.X11-unix --volume $(pwd):/code vri && xhost -local:docker
+
+```
+
+**NOTE:** Please make sure you type `exit` to shutdown the container such that `xhost` can remove docker privileges to the X server. If container was not shutdown properly or unsure, please run the following command to remove docker privileges to X server:
+
+```bash
+xhost -local:docker
+```
+
+
+## 

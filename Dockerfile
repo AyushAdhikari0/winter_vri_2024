@@ -19,6 +19,8 @@ WORKDIR /code
 
 RUN pip install --upgrade pip
 
+RUN apt-get update && apt install python3-tk -y && rm -r /var/lib/apt/lists/*
+
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Source the ROS setup script and start a bash shell

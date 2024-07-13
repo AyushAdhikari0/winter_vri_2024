@@ -1,34 +1,29 @@
+# topics
+topics:
+  image: '/dvs/image_raw'
+  tf: '/tf'
+  event: '/dvs/events'
 
-{
+# TF frames if using /tf topic
+tf_parent: 'base'
+tf_child: 'tool0_controller'
 
-   # topics of interest
-  "topics": {
-    "image" : "/dvs/image_raw",
-    "tf"  : "/tf",
-    "event" : "/dvs/events"
-    },
+# camera intrinsics and parameters
+camera:
+  fx: 295.1374821573644
+  fy: 294.8394945668388
+  cx: 171.8376700693508
+  cy: 125.66829667073789
+  k1: -0.38717762023965885
+  k2: 0.21901330421339732
+  k3: -0.07187495241833602
+  p1: 6.212935381984E-4
+  p2: 4.979870101577617E-4
+  image_width: 346
+  image_height: 260
 
-  "camera": {
-
-    "fx" : 298.67179975,
-    "fy" : 298.59720232,
-    "cx" : 176.38660484,
-    "cy" : 119.96968706,
-
-    "k1" : -0.37074772,
-    "k2" : 0.14798075,
-    "k3" : 0.0,
-    "p1" : 0.00251884,
-    "p2" : -0.00170605,
-
-    "image_width" : 346,
-    "image_height" : 260
-  },
-
-  "pattern" : [10,7],
-
-  "event_buffer_time_ns" : 500000000,
-
-  "feature_toggle" : {'hough' : 1,
-                      'circlesGrid' : 0}
-}
+pattern: [10,7]
+event_buffer_time_ns : 500000000
+feature_toggle: 
+  hough : 1
+  circlesGrid : 0
