@@ -110,7 +110,9 @@ def load_parameters_from_yaml(file_path, keys):
             parameters[key] = configs[key]
         else:
             parameters[key] = None  # Or handle missing keys as needed
-    
-    return parameters
+    if len(parameters.values()) == 1:
+        return list(parameters.values())[0]
+    else:
+        return parameters
 
 

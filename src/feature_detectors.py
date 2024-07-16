@@ -18,7 +18,7 @@ def sift_detector(gray_image):
     
     # Detect SIFT features and compute the descriptors
     keypoints, descriptors = sift.detectAndCompute(gray_image, None)
-    
+
     # Draw keypoints on the image for visualization (optional)
     output_image = cv2.drawKeypoints(gray_image, keypoints, None)
     

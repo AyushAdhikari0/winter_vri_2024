@@ -23,7 +23,26 @@ camera:
   image_height: 260
 
 pattern: [10,7]
+
 event_buffer_time_ns : 500000000
+
 feature_toggle: 
   hough : 1
   circlesGrid : 0
+  sift : 1
+  orb: 1
+  brief: 1
+
+board_dimensions:
+  'x' : 42
+  'y' : 29.7
+
+circle_spacings: 
+  'x' : [1,5,9,13,17,21,25,29,33,37]
+  'y' : [4.36, 8.36, 12.36, 16.36, 20.36, 24.36, 28.36]
+  'd' : [2]
+
+delay : 1
+
+dataset_path:
+  '/home/ayush/Data/dataset'

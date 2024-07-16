@@ -6,26 +6,27 @@ import rosbag
 import cv2
 from cv_bridge import CvBridge
 import numpy as np
+import os
+
+from src.evaluation_metrics import evaluate_number_accuracy_for_frame, write_histogram_to_text_file
 from src.utils import parse_rosbag_file
 from src.yaml_utils import load_camera_intrinsics, check_yaml_file_exists, load_ros_topic_names, load_parameters_from_yaml
-from src.functions import makeGraph, drawLinesPolar, filter_lines_intersect, img_from_events, showImage, undistort_image, getIntersect, isClose2D, isClose
+from src.functions import get_corners, get_processed_images, use_feature_detector, filter_sift_keypoints, order_points_clockwise, get_circle_grid_mask, drawPoints, filter_border_lines, makeGraph, drawLinesPolar, filter_lines_intersect, img_from_events, showImage, undistort_image, getIntersect, isClose2D, isClose
+from src.feature_detectors import sift_detector, surf_detector, orb_detector, brief_detector
 
-def read_images_from_rosbag(bag_file, delay, experiment_dict, camera_matrix, distortion_coefficients):
+
+def read_and_record_rosbag_data(bag_file, delay, experiment_dict, camera_matrix, distortion_coefficients):
 
     pattern = experiment_dict["pattern"]
     num_features = pattern[0] * pattern[1]
-
 
     feature_detect_toggle = experiment_dict["feature_toggle"]
 
     # event camera characteristics
     event_buffer_time_ns = experiment_dict["event_buffer_time_ns"]
 
-    # Initialize the CvBridge class
-    bridge = CvBridge()
-
     # storing the corners as detected from Hough Line transforms
-    previous_corners = []
+    previous_corners = [[14, 18], [334, 12], [326, 248], [21, 227]] # initial guess if no corners
 
     # list of [(frame, accuracy)]
     rgb_accuracy_histogram = []
@@ -45,130 +46,64 @@ def read_images_from_rosbag(bag_file, delay, experiment_dict, camera_matrix, dis
 
     # frame counter for RGB cam
     frame_counter = 0
+
+    # frame histogram
+    per_frame_dict= {}
+
+
     
     # Iterate through the messages in the specified topic
     for topic, msg, t in bag.read_messages(topics=topics_dict.values()):
 
         if (topic == topics_dict.get('image')):
             # Convert the ROS Image message to an OpenCV image
-            colour_img = bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
-            colour_img = undistort_image(colour_img, camera_matrix, distortion_coefficients)
 
-            
-            # grayscale 
-            gray_img = cv2.cvtColor(colour_img, cv2.COLOR_RGB2GRAY)
+            # get processed images
+            colour_img, gray_img, canny = get_processed_images(msg, camera_matrix, distortion_coefficients)
 
-            # #binarise image
+            # get corners using houghLines
+            corners = get_corners(canny, colour_img, previous_corners)
+            drawPoints(corners, colour_img)     
 
-            # _, binarised_img = cv2.threshold(gray_img, thresh=50, maxval=255, type=cv2.THRESH_BINARY)
-            # binarised_img = cv2.adaptiveThreshold(gray_img,maxValue=255, adaptiveMethod=cv2.ADAPTIVE_THRESH_MEAN_C,
-            #                                          thresholdType = cv2.THRESH_BINARY, blockSize=11, C=2)
+            # apply feature detection methods
 
-            # # blur image
-            # blurred_img = cv2.medianBlur(binarised_img,5)
+            # results dict   
+            per_frame_dict[frame_counter] = {}
 
-            # canny edge detection
-            canny = cv2.Canny(gray_img, 100, 180)
+            # results stored as:
+                # {
+                #     frame_1 :
+                #         {
+                #             'sift' : sift_accuracy,
+                #             'orb'  : orb_accuracy,
+                #             'brief' : brief_accuracy,
+                #             'hough' : hough_accuracy
+                #         }
+                    
+                #     frame_2 :
+                #         {
+                #             'sift' : sift_accuracy,
+                #             'orb'  : orb_accuracy,
+                #             'brief' : brief_accuracy,
+                #             'hough' : hough_accuracy
+                #         }
+                # }
 
-            # get lines from image
-            border = cv2.HoughLines(canny, 1,np.pi/180, 100)
+            if feature_detect_toggle.get('sift'):
+                keypoints, mask = use_feature_detector('sift', gray_img, corners, filter_toggle=True)
+                per_frame_dict[frame_counter]['sift'] = evaluate_number_accuracy_for_frame(keypoints) 
 
-            if border is not None:
+            if feature_detect_toggle.get('orb'):
+                keypoints, mask = use_feature_detector('orb', gray_img, corners, filter_toggle=True)
+                per_frame_dict[frame_counter]['orb'] = evaluate_number_accuracy_for_frame(keypoints) 
 
-                vert_lines = []
-                hori_lines = []
-
-                # filter horizontal and vertical lines
-                for line in border:
-                    rho,theta = line[0]
-
-                    if theta < np.pi/4 or theta > 3*np.pi/4:
-                        vert_lines.append((rho,theta))
-                    else:
-                        hori_lines.append((rho,theta))
-
-                # filter duplicate intersecting lines in horizontal and vertical sets
-                if len(border) != 4:
-                    vert_lines = filter_lines_intersect(vert_lines)
-                    hori_lines = filter_lines_intersect(hori_lines)
-
-       
-                border = [[[rho,theta]] for [rho,theta] in vert_lines + hori_lines]
-
-                drawLinesPolar(border, colour_img)   
-
-                corners = []    
-
-                # get corners from horizontal and vertical line intersects
-                for h_line in hori_lines:
-                    for v_line in vert_lines:
-                        corners.append(getIntersect(h_line,v_line))
-
-                # if you get 4 corners, use those, otherwise use previous corners        
-                if (len(corners) != 4):
-                    corners = previous_corners
-                else:
-                    previous_corners = corners
-
-            else:
-                print("board not found, use the old dimensions")
-                corners = previous_corners
-
-            # draw corners
-            for (x,y) in corners:
-                x = int(x)
-                y = int(y)
-                cv2.circle(colour_img,(x,y),2,(0,255,0),3)
-     
-            # circleGrid method
-
-            if feature_detect_toggle.get('circlesGrid'):
-
-                _, centres = cv2.findCirclesGrid(gray_img, pattern)
-
-                # print(centres)
-
-                if centres is not None:
-                    for point in centres:
-                        cv2.circle(colour_img, (int(point[0][0]), int(point[0][1])), radius=5, color=(0, 0, 255), thickness=-1)  # Red points with radius 5
-                else:
-                    print("No circles found : circlesGrid method")
-
-            input_img = canny
-            
+            if feature_detect_toggle.get('brief'):
+                keypoints, mask = use_feature_detector('brief', gray_img, corners, filter_toggle=True)
+                per_frame_dict[frame_counter]['brief'] = evaluate_number_accuracy_for_frame(keypoints) 
+             
             if feature_detect_toggle.get('hough'):
-                               
-                # get circles from canny image, filter by radius
-                circles = cv2.HoughCircles(input_img, cv2.HOUGH_GRADIENT, dp=1, minDist=12, param1=50,param2=8,minRadius=3,maxRadius=8)
-                
-                showImage("RGB Canny", canny, delay)
-                
-                if circles is not None:
-                    circles = np.uint16(np.around(circles))
-                    colour_increment = 255/len(circles[0,:])
-
-                    j = 0
-                    centres = []
-
-                    for i in circles[0,:]:
-                        # filter points that are close to the corners 
-                        for (x,y) in corners:
-                            if isClose2D((i[0],i[1]),(x,y), 15):
-                                break
-                        else:
-                            # draw circle points    
-                            cv2.circle(colour_img,(i[0],i[1]),2,(0,255,0),3)
-                            centres.append((i[0], i[1]))  
-                            # draw the outer circle
-                            if j == 0:
-                                # draw first circle in green
-                                cv2.circle(colour_img,(i[0],i[1]),i[2],(0,255,0),2)
-                            else:  
-                                # draw next circles in red to blue
-                                cv2.circle(colour_img,(i[0],i[1]),i[2],(255-j,0,j),2)
-                            j += colour_increment
-
-                    centres = np.array(centres, dtype=np.int32).reshape((-1, 1, 2))
+                centres = use_feature_detector('hough', gray_img, corners, filter_toggle=True, canny=canny, colour_img=colour_img)
+                per_frame_dict[frame_counter]['hough'] = evaluate_number_accuracy_for_frame(centres) 
 
             showImage("Colour", colour_img, delay)
             
@@ -177,7 +112,6 @@ def read_images_from_rosbag(bag_file, delay, experiment_dict, camera_matrix, dis
 
             print("RGB Camera:", rgb_perc, "percent of features detected")
             frame_counter +=1
-
 
 
         elif (topic == topics_dict.get('tf')):
@@ -193,7 +127,7 @@ def read_images_from_rosbag(bag_file, delay, experiment_dict, camera_matrix, dis
 
                 if first_message:
                     start_time = ts.to_nsec()
-                    previous_time_ns = start_time
+                    previous_time_ns = 0
                     first_message = False
                     
 
@@ -253,12 +187,10 @@ def read_images_from_rosbag(bag_file, delay, experiment_dict, camera_matrix, dis
                     previous_time_ns = current_time_ns
 
                     event_perc = 100* len(event_centres)/num_features
-                    event_accuracy_histogram.append((start_time - ts.to_nsec(), event_perc))
-            
+                    event_accuracy_histogram.append((ts.to_nsec()-start_time, event_perc))
+
                     print("Event Camera:", event_perc, "percent of features detected")
-                    # time.sleep(1)
  
-            
     # Close the bag file
     bag.close()
     
@@ -268,9 +200,13 @@ def read_images_from_rosbag(bag_file, delay, experiment_dict, camera_matrix, dis
     # make Graphs
     # trim last datapoint
     event_accuracy_histogram = event_accuracy_histogram[1:]
-    makeGraph(event_accuracy_histogram, ["EVENT"], "Nano seconds from start", "Percentage of features detected (%)", "Event Camera accuracy")
-    makeGraph(rgb_accuracy_histogram, ["RGB"], "Frame number", "Percentage of features detected (%)","RGB accuracy per frame" )
 
+    print(per_frame_dict)
+
+    # write_histogram_to_text_file(event_accuracy_histogram, bag_file)
+    makeGraph([t for (t,y) in event_accuracy_histogram], [[y for (t,y) in event_accuracy_histogram]], ["EVENT"], "Nano seconds from start", "Percentage of features detected (%)", "Event Camera accuracy")
+    makeGraph([t for (t,y) in rgb_accuracy_histogram], [[y for (t,y) in rgb_accuracy_histogram]], ["RGB"], "Frame number", "Percentage of features detected (%)","RGB accuracy per frame" )
+    
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Parse a path to a rosbag file.")
     parser.add_argument('rosbag_path', type=parse_rosbag_file, help='Path to a rosbag file')
@@ -279,7 +215,7 @@ if __name__ == "__main__":
     print(f"Path to rosbag file: {bag_file}")
 
     # load config file
-    config_file = "cfg.yaml"
+    config_file = "config.yaml"
 
     if not check_yaml_file_exists(config_file):
         print(f"Error: The file '{config_file}' does not exist.")
@@ -289,29 +225,12 @@ if __name__ == "__main__":
     topics_dict = load_ros_topic_names(config_file)
     experiment_dict = load_parameters_from_yaml(config_file, ["pattern", "event_buffer_time_ns", "feature_toggle"])
 
-    # delay for how long the images are displayed for 
-    delay = 100
-
-
-    
-    
-
-
-    
-    # read in images and undistort
-
-    # read in events, convert to images, and undistort
-
-    # apply feature detector to images and capture results
-
-    # apply feature detector to event images and capture results
-
+    delay = int(load_parameters_from_yaml(config_file, ["delay"]))
 
     # bag_file = 'C:/Users/yush7/Desktop/vri_files_2024/data/calib/hi2.bag'
     # lz4_file = 'C:/Users/yush7/Desktop/vri_files_2024/data/hi2.bag'
     # bag_file = 'C:/Users/yush7/Desktop/satellite project files/data/test1.bag'
     # bag_file = 'C:/Users/yush7/Desktop/satellite project files/data/calib/calibration_data.bag'
-    # bag_file = '/home/ayush/Data/tst2.bag'
-
-  
-    read_images_from_rosbag(bag_file, delay, experiment_dict, camera_matrix, distortion_coefficients)
+    # bag_file = '/home/ayush/Data/tst2.bag' 
+    # bag_file = '/home/ayush/Data/dataset/ra_50_exp_20_000.bag' 
+    read_and_record_rosbag_data(bag_file, delay, experiment_dict, camera_matrix, distortion_coefficients)
