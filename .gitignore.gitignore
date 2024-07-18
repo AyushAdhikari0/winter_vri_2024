@@ -1,4 +1,5 @@
 myenv/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -163,5 +164,3 @@ cython_debug/
 #.idea/
 
 .vscode/
-
-**/*.bag

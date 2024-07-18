@@ -8,12 +8,11 @@ from cv_bridge import CvBridge
 import numpy as np
 import os
 
-from src.evaluation_metrics import evaluate_number_accuracy_for_frame, write_histogram_to_text_file
+from src.evaluation_metrics import evaluate_number_accuracy_for_frame
 from src.utils import parse_rosbag_file
 from src.yaml_utils import load_camera_intrinsics, check_yaml_file_exists, load_ros_topic_names, load_parameters_from_yaml
-from src.functions import get_corners, get_processed_images, use_feature_detector, filter_sift_keypoints, order_points_clockwise, get_circle_grid_mask, drawPoints, filter_border_lines, makeGraph, drawLinesPolar, filter_lines_intersect, img_from_events, showImage, undistort_image, getIntersect, isClose2D, isClose
+from src.functions import record_y_averages_in_results_file,get_lighting_and_exposure, show_all_graphs_per_lighting_condition_from_results_file, getCanny, create_results_dict, makeGraphFromTextFile, write_results_dict_to_text_file, get_corners, get_processed_images, use_feature_detector, filter_keypoints_with_mask, order_points_clockwise, get_circle_grid_mask, drawPoints, filter_border_lines, makeGraph, drawLinesPolar, filter_lines_intersect, img_from_events, showImage, undistort_image, getIntersect, isClose2D, isClose
 from src.feature_detectors import sift_detector, surf_detector, orb_detector, brief_detector
-
 
 def read_and_record_rosbag_data(bag_file, delay, experiment_dict, camera_matrix, distortion_coefficients):
 
@@ -27,13 +26,7 @@ def read_and_record_rosbag_data(bag_file, delay, experiment_dict, camera_matrix,
 
     # storing the corners as detected from Hough Line transforms
     previous_corners = [[14, 18], [334, 12], [326, 248], [21, 227]] # initial guess if no corners
-
-    # list of [(frame, accuracy)]
-    rgb_accuracy_histogram = []
-
-    # list of [(time since start, accuracy)]
-    event_accuracy_histogram = []
-    
+  
     # Open the ROS bag file
     bag = rosbag.Bag(bag_file, 'r')
 
@@ -47,10 +40,11 @@ def read_and_record_rosbag_data(bag_file, delay, experiment_dict, camera_matrix,
     # frame counter for RGB cam
     frame_counter = 0
 
-    # frame histogram
+    # per frame dictionary for rgb camera
     per_frame_dict= {}
 
-
+    # per time dictionary for event camera
+    per_time_dict = {}
     
     # Iterate through the messages in the specified topic
     for topic, msg, t in bag.read_messages(topics=topics_dict.values()):
@@ -65,10 +59,9 @@ def read_and_record_rosbag_data(bag_file, delay, experiment_dict, camera_matrix,
             corners = get_corners(canny, colour_img, previous_corners)
             drawPoints(corners, colour_img)     
 
-            # apply feature detection methods
+            # apply feature detection methods  
 
-            # results dict   
-            per_frame_dict[frame_counter] = {}
+            per_frame_dict[frame_counter] = create_results_dict(feature_detect_toggle, frame_counter, gray_img, corners, colour_image=colour_img, event_flag=False)
 
             # results stored as:
                 # {
@@ -89,36 +82,18 @@ def read_and_record_rosbag_data(bag_file, delay, experiment_dict, camera_matrix,
                 #         }
                 # }
 
-            if feature_detect_toggle.get('sift'):
-                keypoints, mask = use_feature_detector('sift', gray_img, corners, filter_toggle=True)
-                per_frame_dict[frame_counter]['sift'] = evaluate_number_accuracy_for_frame(keypoints) 
-
-            if feature_detect_toggle.get('orb'):
-                keypoints, mask = use_feature_detector('orb', gray_img, corners, filter_toggle=True)
-                per_frame_dict[frame_counter]['orb'] = evaluate_number_accuracy_for_frame(keypoints) 
-
-            if feature_detect_toggle.get('brief'):
-                keypoints, mask = use_feature_detector('brief', gray_img, corners, filter_toggle=True)
-                per_frame_dict[frame_counter]['brief'] = evaluate_number_accuracy_for_frame(keypoints) 
-             
-            if feature_detect_toggle.get('hough'):
-                centres = use_feature_detector('hough', gray_img, corners, filter_toggle=True, canny=canny, colour_img=colour_img)
-                per_frame_dict[frame_counter]['hough'] = evaluate_number_accuracy_for_frame(centres) 
-
             showImage("Colour", colour_img, delay)
             
-            rgb_perc = 100* len(centres)/num_features
-            rgb_accuracy_histogram.append((frame_counter, rgb_perc))
-
-            print("RGB Camera:", rgb_perc, "percent of features detected")
             frame_counter +=1
-
 
         elif (topic == topics_dict.get('tf')):
             # print((topic, t, '\b  n'))
             pass
 
         elif (topic == topics_dict.get('event')):
+
+            if 'corners' not in locals():
+                corners = previous_corners
 
             # sort all events into bins of the event buffer length 
             for event in msg.events:
@@ -128,8 +103,7 @@ def read_and_record_rosbag_data(bag_file, delay, experiment_dict, camera_matrix,
                 if first_message:
                     start_time = ts.to_nsec()
                     previous_time_ns = 0
-                    first_message = False
-                    
+                    first_message = False   
 
                 current_time_ns = ts.to_nsec()
                 current_bin.append(event)
@@ -147,49 +121,10 @@ def read_and_record_rosbag_data(bag_file, delay, experiment_dict, camera_matrix,
                     kernel = np.ones((3,3),np.uint8)
                     event_img = cv2.morphologyEx(event_img, cv2.MORPH_OPEN, kernel)
 
-                    # apply circle detector
-                    circles = cv2.HoughCircles(event_img, cv2.HOUGH_GRADIENT, dp=1, minDist=20, param1=50,param2=8,minRadius=5,maxRadius=8)
+                    per_time_dict[current_time_ns-start_time] = create_results_dict(feature_detect_toggle, current_time_ns, event_img, corners, event_img, event_flag=True)
 
-                    event_img = cv2.cvtColor(event_img, cv2.COLOR_GRAY2BGR)
-
-                    # stores centres of circles detected by event camera
-                    event_centres = []
-                    if circles is not None:
-
-                        j = 0
-                        colour_increment = 255/len(circles[0,:])
-
-                        for i in circles[0,:]:
-
-                        # filter points that are close to the corners 
-                            for (x,y) in corners:
-                                if isClose2D((i[0],i[1]),(x,y), 15):
-                                    break
-                            else:
-                                i = [int(a) for a in i]   
-
-                                # draw centre
-                                cv2.circle(event_img,(i[0],i[1]),2,(0,255,0),3)
-                                
-                                event_centres.append((i[0], i[1])) 
-
-                                # draw the outer circle
-                                if j==0:
-                                    # draw first circle in green
-                                    cv2.circle(event_img,(i[0],i[1]),i[2],(0,255,0),2)
-                                else:  
-                                    # draw next circles in red to blue
-                                    cv2.circle(event_img,(i[0],i[1]),i[2],(255-j,0,j),2)
-                                j += colour_increment
-
-                    showImage("Event", event_img, delay)
                     current_bin = []
                     previous_time_ns = current_time_ns
-
-                    event_perc = 100* len(event_centres)/num_features
-                    event_accuracy_histogram.append((ts.to_nsec()-start_time, event_perc))
-
-                    print("Event Camera:", event_perc, "percent of features detected")
  
     # Close the bag file
     bag.close()
@@ -197,16 +132,36 @@ def read_and_record_rosbag_data(bag_file, delay, experiment_dict, camera_matrix,
     # Destroy all OpenCV windows
     cv2.destroyAllWindows()
 
-    # make Graphs
-    # trim last datapoint
-    event_accuracy_histogram = event_accuracy_histogram[1:]
+    write_results_dict_to_text_file(per_frame_dict, bag_file, event_flag=False)
 
-    print(per_frame_dict)
+    write_results_dict_to_text_file(per_time_dict, bag_file, event_flag=True)
 
-    # write_histogram_to_text_file(event_accuracy_histogram, bag_file)
-    makeGraph([t for (t,y) in event_accuracy_histogram], [[y for (t,y) in event_accuracy_histogram]], ["EVENT"], "Nano seconds from start", "Percentage of features detected (%)", "Event Camera accuracy")
-    makeGraph([t for (t,y) in rgb_accuracy_histogram], [[y for (t,y) in rgb_accuracy_histogram]], ["RGB"], "Frame number", "Percentage of features detected (%)","RGB accuracy per frame" )
+    bag_text_file_name = bag_file[:-4]+'_rgb.txt'
+    y_averages_rgb = makeGraphFromTextFile(file_location=bag_text_file_name, make_graph_boolean=False)   
+    bag_text_file_name = bag_file[:-4]+'_evt.txt'
+    y_averages_evt = makeGraphFromTextFile(file_location=bag_text_file_name, make_graph_boolean=False)   
     
+    return y_averages_rgb, y_averages_evt
+    
+def iterate_through_every_bag_file(directory):
+
+    progress_counter = 1
+
+    for bagName in os.listdir(directory):
+
+        print(bagName)
+        # print(os.listdir(directory))
+
+        if bagName.endswith(".bag"):
+            bag_file = directory + bagName
+            
+            y_averages_rgb, y_averages_evt = read_and_record_rosbag_data(bag_file, delay, experiment_dict, camera_matrix, distortion_coefficients)
+            record_y_averages_in_results_file(directory, bagName, y_averages_rgb,event_flag=False)
+            record_y_averages_in_results_file(directory, bagName, y_averages_evt,event_flag=True)
+
+            print(progress_counter,'bags completed')
+            progress_counter+=1
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Parse a path to a rosbag file.")
     parser.add_argument('rosbag_path', type=parse_rosbag_file, help='Path to a rosbag file')
@@ -233,4 +188,11 @@ if __name__ == "__main__":
     # bag_file = 'C:/Users/yush7/Desktop/satellite project files/data/calib/calibration_data.bag'
     # bag_file = '/home/ayush/Data/tst2.bag' 
     # bag_file = '/home/ayush/Data/dataset/ra_50_exp_20_000.bag' 
-    read_and_record_rosbag_data(bag_file, delay, experiment_dict, camera_matrix, distortion_coefficients)
+
+    directory = '/home/ayush/Data/dataset/'
+
+    iterate_through_every_bag_file(directory)
+    show_all_graphs_per_lighting_condition_from_results_file(directory,'results_evt.txt')
+    show_all_graphs_per_lighting_condition_from_results_file(directory,'results_rgb.txt')
+
+    # read_and_record_rosbag_data(bag_file, delay, experiment_dict, camera_matrix, distortion_coefficients)

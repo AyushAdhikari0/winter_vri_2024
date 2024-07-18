@@ -28,7 +28,6 @@ event_buffer_time_ns : 500000000
 
 feature_toggle: 
   hough : 1
-  circlesGrid : 0
   sift : 1
   orb: 1
   brief: 1
@@ -44,5 +43,6 @@ circle_spacings:
 
 delay : 1
 
-dataset_path:
-  '/home/ayush/Data/dataset'
+dataset_path: '/home/ayush/Data/dataset'
+
+show_images: False
