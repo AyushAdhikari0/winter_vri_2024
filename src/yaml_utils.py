@@ -1,6 +1,8 @@
 import yaml
 import os
 import numpy as np
+from scipy.spatial.transform import Rotation as R
+
 
 def check_yaml_file_exists(file_path):
     """
@@ -115,4 +117,44 @@ def load_parameters_from_yaml(file_path, keys):
     else:
         return parameters
 
+def load_transformation(file_path, key):
+    """
+    Load the transformation matrix from a YAML file given a specific key.
 
+    Parameters:
+    - file_path (str): The path to the YAML configuration file.
+    - key (str): The key in the YAML file that contains the transformation data.
+
+    Returns:
+    - np.ndarray: A 4x4 homogeneous transformation matrix.
+
+    Raises:
+    - KeyError: If the specified key does not exist in the YAML file.
+    - ValueError: If the YAML file does not contain valid transformation data.
+    """
+    # Load the YAML file
+    configs = load_configs(file_path)
+    
+    if key not in configs:
+        raise KeyError(f"Key '{key}' not found in the YAML file.")
+    
+    if 'Position' not in configs[key] or 'Rotation' not in configs[key]:
+        raise ValueError(f"The key '{key}' does not contain valid transformation data.")
+    
+    # Extract position and quaternion
+    position = np.array(configs[key]['Position'])
+    quaternion = np.array(configs[key]['Rotation'])
+
+
+    # change quaternion to form [qx, qy, qz, qw]
+    quaternion[0], quaternion[-1] =  quaternion[-1], quaternion[0]
+
+    # Convert quaternion to rotation matrix
+    rotation = R.from_quat(quaternion).as_matrix()
+
+    # Create 4x4 homogeneous transformation matrix
+    transformation_matrix = np.eye(4)
+    transformation_matrix[:3, :3] = rotation
+    transformation_matrix[:3, 3] = position
+
+    return transformation_matrix

@@ -43,6 +43,17 @@ circle_spacings:
 
 delay : 1
 
-dataset_path: '/home/ayush/Data/dataset'
+dataset_path:
+  '/home/ayush/Data/dataset'
 
-show_images: False
+# Positions are recorded in metres.
+# Rotations are recorded as quaternions [qw, qx, qy, qz]
+# Transform a point from the checkerboard coordinate frame to the robot arm's end effector coordinate frame
+PoseCheckerBoard2EndEffector:
+  Position: [0.13635437607665546, 0.0912931109506121, 0.03373045640993655]
+  Rotation: [0.004607816411721593, -0.9999676948372087, 0.0024256096336171796, 0.006123212210920839]
+
+# Transform a point from the robot base's coordinate frame to the camera's coordinate frame
+PoseRobotBase2Camera:
+  Position: [-0.12961764118178273, 0.4850773388912504, 1.1361514428908694]
+  Rotation: [0.7062271356392569, 0.7076962358425867, 0.015381231841057047, -0.01314109462930488]

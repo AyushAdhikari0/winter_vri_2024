@@ -1,6 +1,5 @@
 numpy
 rosbags
-bagpy
 opencv-python
 opencv-contrib-python
 scikit-learn
@@ -8,5 +7,6 @@ cvbridge3
 pyyaml
 tk
 matplotlib
+scipy
 --extra-index-url https://rospypi.github.io/simple/ 
 roslz4
