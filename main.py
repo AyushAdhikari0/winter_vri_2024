@@ -9,9 +9,10 @@ import numpy as np
 import os
 
 from src.evaluation_metrics import evaluate_number_accuracy_for_frame
-from src.utils import parse_rosbag_file
-from src.yaml_utils import load_camera_intrinsics, check_yaml_file_exists, load_ros_topic_names, load_parameters_from_yaml
 from src.functions import record_y_averages_in_results_file,get_lighting_and_exposure, show_all_graphs_per_lighting_condition_from_results_file, getCanny, create_results_dict, makeGraphFromTextFile, write_results_dict_to_text_file, get_corners, get_processed_images, use_feature_detector, filter_keypoints_with_mask, order_points_clockwise, get_circle_grid_mask, drawPoints, filter_border_lines, makeGraph, drawLinesPolar, filter_lines_intersect, img_from_events, showImage, undistort_image, getIntersect, isClose2D, isClose
+
+from src.utils import parse_rosbag_file, load_tf_messages, filter_tf_messages, tf_messages_to_transformation, calculate_transformation_board_to_camera, project_points_board_to_camera, load_images_from_rosbag
+from src.yaml_utils import load_camera_intrinsics, check_yaml_file_exists, load_ros_topic_names, load_parameters_from_yaml, load_transformation
 from src.feature_detectors import sift_detector, surf_detector, orb_detector, brief_detector
 
 def read_and_record_rosbag_data(bag_file, delay, experiment_dict, camera_matrix, distortion_coefficients):
@@ -179,6 +180,33 @@ if __name__ == "__main__":
     camera_matrix, distortion_coefficients, image_size = load_camera_intrinsics(config_file)
     topics_dict = load_ros_topic_names(config_file)
     experiment_dict = load_parameters_from_yaml(config_file, ["pattern", "event_buffer_time_ns", "feature_toggle"])
+    tf_frames = load_parameters_from_yaml(config_file, ["tf_parent", "tf_child"])
+
+    # load transformations from yaml
+    tf_robot_base_to_camera = load_transformation(config_file, "PoseRobotBase2Camera")
+    tf_checkerboard_to_endeffector = load_transformation(config_file, "PoseCheckerBoard2EndEffector")
+
+    # load tf messages from rosbag
+    tfmsgs_endeffector_to_robot_base = load_tf_messages(bag_file, topics_dict["tf"], tf_frames["tf_parent"], tf_frames["tf_child"])
+
+
+    color_images, color_image_timestamps = load_images_from_rosbag(bag_file, topics_dict["image"])
+
+    for img, timestamp in zip(color_images, color_image_timestamps):
+        tf_board_to_camera = calculate_transformation_board_to_camera(tfmsgs_endeffector_to_robot_base, timestamp, tf_robot_base_to_camera, tf_checkerboard_to_endeffector)
+
+        pts3D = np.zeros((4,3))
+        pts3D[1,] = [0.0, 0.420, 0.0]
+        pts3D[2,] = [0.297, 0.420, 0.0]
+        pts3D[3,] = [0.297, 0.0, 0.0]
+
+        projected_points = project_points_board_to_camera(pts3D, tf_board_to_camera, camera_matrix, distortion_coefficients)
+
+        for item in projected_points:
+            item = item.astype(np.int32)
+            cv2.drawMarker(img, (item[0], item[1]), (255,0,0), markerType=cv2.MARKER_STAR)
+        cv2.imshow('image showing origin', img)
+        cv2.waitKey(50)
 
     delay = int(load_parameters_from_yaml(config_file, ["delay"]))
 
